@@ -1,0 +1,4 @@
+Flask>=2.0
+redis>=4.0
+requests>=2.20
+gunicorn>=20.0 # For deployment on Render
