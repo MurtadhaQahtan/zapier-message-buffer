@@ -4,13 +4,13 @@ import json
 import threading
 from flask import Flask, request, jsonify
 import redis
-import requests # To send data to your chatbot
+import requests # To send data to Zapier Catch Hook
 
 # --- Configuration ---
 # Load configuration from environment variables set in Render
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379') # Get Redis URL from Render env
-ZAPIER_SECRET_TOKEN = os.environ.get('ZAPIER_SECRET_TOKEN', 'default_secret_token') # Shared secret with Zapier
-CHATBOT_API_URL = os.environ.get('CHATBOT_API_URL') # The URL to send combined messages to
+ZAPIER_SECRET_TOKEN = os.environ.get('ZAPIER_SECRET_TOKEN', 'default_secret_token') # Shared secret with Zapier (for incoming webhook)
+ZAP_CATCH_HOOK_URL = os.environ.get('ZAP_CATCH_HOOK_URL') # The Zapier Catch Hook URL to send combined messages to
 DEBOUNCE_DELAY_SECONDS = 10 # How long to wait after the LAST message before sending (e.g., 10 seconds)
 
 # --- Initialization ---
@@ -38,7 +38,7 @@ user_timers = {}
 
 def send_combined_messages(user_id):
     """
-    Retrieves messages from Redis, combines them, sends to chatbot, and clears.
+    Retrieves messages from Redis, combines them, sends to Zapier Catch Hook, and clears.
     This function is called by the timer when it expires.
     """
     global user_timers
@@ -72,33 +72,37 @@ def send_combined_messages(user_id):
 
         print(f"Combined messages for user {user_id}: {combined_text}")
 
-        # --- Send to Chatbot ---
-        if not CHATBOT_API_URL:
-            print("CHATBOT_API_URL not set. Cannot send message.")
+        # --- Send to Zapier Catch Hook ---
+        if not ZAP_CATCH_HOOK_URL:
+            print("ZAP_CATCH_HOOK_URL not set. Cannot send message to Zapier.")
             # Optionally delete messages from Redis even if sending fails
             # redis_client.delete(user_message_key) 
             return
 
         try:
-            # !!! IMPORTANT: Adapt this payload structure for YOUR chatbot's API !!!
-            chatbot_payload = {
-                'userId': user_id,
-                'combinedMessage': combined_text
-                # Add any other fields your chatbot API requires
+            # Prepare payload for the Zapier Catch Hook
+            # This Zap will receive 'originating_user_id' and 'combined_message'
+            zapier_payload = {
+                'originating_user_id': user_id, # Pass the original user ID
+                'combined_message': combined_text
             }
-            # Add headers if needed (e.g., Content-Type, Authorization)
+            # Zapier Catch Hooks generally don't require specific headers beyond Content-Type
             headers = {'Content-Type': 'application/json'} 
             
-            response = requests.post(CHATBOT_API_URL, json=chatbot_payload, headers=headers, timeout=10)
+            # Send data to the Zapier Catch Hook URL
+            response = requests.post(ZAP_CATCH_HOOK_URL, json=zapier_payload, headers=headers, timeout=10)
             response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
-            print(f"Successfully sent combined message for user {user_id} to chatbot. Status: {response.status_code}")
+            
+            # Zapier Catch Hook usually returns a success status if received
+            print(f"Successfully sent combined message for user {user_id} to Zapier Catch Hook. Status: {response.status_code}")
+            # print(f"Zapier response: {response.text}") # Optional: log Zapier's response body
 
             # --- Clear messages from Redis ONLY after successful send ---
             redis_client.delete(user_message_key)
             print(f"Cleared messages for user {user_id} from Redis.")
 
         except requests.exceptions.RequestException as e:
-            print(f"Error sending message to chatbot for user {user_id}: {e}")
+            print(f"Error sending message to Zapier Catch Hook for user {user_id}: {e}")
             # Decide if you want to keep the messages in Redis to retry later
             # or delete them anyway. For simplicity here, we don't delete on failure.
 
@@ -131,8 +135,8 @@ def zapier_webhook():
     if not data:
         return jsonify({"status": "error", "message": "Missing JSON payload"}), 400
 
-    user_id = data.get('userID')
-    message_text = data.get('messageText')
+    user_id = data.get('userID') # Expecting userID from the first Zap
+    message_text = data.get('messageText') # Expecting messageText from the first Zap
 
     if not user_id or not message_text:
         return jsonify({"status": "error", "message": "Missing 'userID' or 'messageText'"}), 400
@@ -182,6 +186,6 @@ def zapier_webhook():
 # This part is usually handled by the deployment platform (like Gunicorn on Render)
 # You might need this for local testing:
 # if __name__ == '__main__':
-#    # Make sure CHATBOT_API_URL is set if testing locally
+#    # Make sure ZAP_CATCH_HOOK_URL is set if testing locally
 #    # Use a different port if 5000 is taken
 #    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
