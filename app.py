@@ -11,7 +11,7 @@ import requests # To send data to Zapier Catch Hook
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379') # Get Redis URL from Render env
 ZAPIER_SECRET_TOKEN = os.environ.get('ZAPIER_SECRET_TOKEN', 'default_secret_token') # Shared secret with Zapier (for incoming webhook)
 ZAP_CATCH_HOOK_URL = os.environ.get('ZAP_CATCH_HOOK_URL') # The Zapier Catch Hook URL to send combined messages to
-DEBOUNCE_DELAY_SECONDS = 10 # How long to wait after the LAST message before sending (e.g., 10 seconds)
+DEBOUNCE_DELAY_SECONDS = 15 # How long to wait after the LAST message before sending (e.g., 10 seconds)
 
 # --- Initialization ---
 app = Flask(__name__)
